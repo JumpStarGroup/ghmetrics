@@ -76,7 +76,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, toRef } from 'vue';
+import { defineComponent, ref, toRef, watch, PropType } from 'vue';
 import { Metrics } from '../model/Metrics';
 import {
   Chart as ChartJS,
@@ -110,11 +110,11 @@ ChartJS.register(
 export default defineComponent({
   name: 'MetricsViewer',
   props: {
-        metrics: {
-            type: Object,
-            required: true
-        }
-    },
+    metrics: {
+      type: Array as PropType<Metrics[]>, // 修复类型定义
+      required: true
+    }
+  },
   components: {
     Line,
     Bar
@@ -194,6 +194,122 @@ export default defineComponent({
     };
 
     const data = toRef(props, 'metrics').value;
+
+    const updateMetricsData = (metricsData: Metrics[]) => {
+      if (!metricsData || !Array.isArray(metricsData)) {
+        console.error('Invalid metrics data:', metricsData);
+        return;
+      }
+
+      try {
+        // Reset cumulative values
+        cumulativeNumberSuggestions.value = 0;
+        cumulativeNumberAcceptances.value = 0;
+        cumulativeNumberLOCAccepted.value = 0;
+
+        // Update cumulative values safely
+        metricsData.forEach((m: Metrics) => {
+          cumulativeNumberSuggestions.value += m.total_suggestions_count || 0;
+          cumulativeNumberAcceptances.value += m.total_acceptances_count || 0;
+          cumulativeNumberLOCAccepted.value += m.total_lines_accepted || 0;
+        });
+
+        // Calculate acceptance rate
+        acceptanceRateAverage.value = cumulativeNumberSuggestions.value === 0 ? 0 :
+          (cumulativeNumberAcceptances.value / cumulativeNumberSuggestions.value * 100);
+
+        // Update charts
+        updateChartsData(metricsData);
+      } catch (error) {
+        console.error('Error updating metrics:', error);
+      }
+    };
+
+    const updateChartsData = (data: Metrics[]) => {
+      const labels = data.map(m => m.day);
+
+      // Update acceptance rate chart with reactive data
+      acceptanceRateChartData.value = {
+        labels,
+        datasets: [{
+          type: 'bar', // Changed to bar type for better visualization
+          label: 'Acceptance Rate',
+          data: data.map(m => m.total_lines_suggested !== 0 ? 
+            (m.total_lines_accepted / m.total_lines_suggested) * 100 : 0),
+          backgroundColor: 'rgba(173, 216, 230, 0.2)',
+          borderColor: 'rgba(173, 216, 230, 1)',
+          borderWidth: 1
+        }]
+      };
+      // Update total suggestions and acceptance chart with reactive data
+      totalSuggestionsAndAcceptanceChartData.value = {
+        labels,
+        datasets: [
+          {
+            label: 'Total Suggestions',
+            data: data.map(m => m.total_suggestions_count),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1
+          },
+          {
+            label: 'Total Acceptance',
+            data: data.map(m => m.total_acceptances_count),
+            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+            borderColor: 'rgba(153, 102, 255, 1)',
+            borderWidth: 1
+          }
+        ]
+      };
+      // Update total lines suggested and accepted chart with reactive data
+      chartData.value = {
+        labels,
+        datasets: [
+          {
+            label: 'Total Lines Suggested',
+            data: data.map(m => m.total_lines_suggested),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1
+          },
+          {
+            label: 'Total Lines Accepted',
+            data: data.map(m => m.total_lines_accepted),
+            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+            borderColor: 'rgba(153, 102, 255, 1)',
+            borderWidth: 1
+          }
+        ]
+      };
+      // Update total active users chart with reactive data
+      totalActiveUsersChartData.value = {
+        labels,
+        datasets: [
+          {
+            label: 'Total Active Users',
+            data: data.map(m => m.total_active_users),
+            backgroundColor: 'rgba(0, 0, 139, 0.2)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 1
+          }
+        ]
+      };
+
+    };
+
+    // Add watcher for metrics changes
+    watch(
+      () => props.metrics,
+      (newMetrics) => {
+        if (newMetrics) {
+          updateMetricsData(newMetrics);
+        }
+      },
+      { 
+        immediate: true, 
+        deep: true,
+      }
+    );
 
     cumulativeNumberSuggestions.value = 0;
     const cumulativeSuggestionsData = data.map((m: Metrics) => {
@@ -294,7 +410,7 @@ export default defineComponent({
     return { totalSuggestionsAndAcceptanceChartData, chartData, 
       chartOptions, totalActiveUsersChartData, 
       totalActiveUsersChartOptions, acceptanceRateChartData, acceptanceRateAverage, cumulativeNumberSuggestions, 
-      cumulativeNumberAcceptances, cumulativeNumberLOCAccepted };
+      cumulativeNumberAcceptances, cumulativeNumberLOCAccepted, updateMetricsData };
   },
   
 });

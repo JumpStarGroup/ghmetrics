@@ -64,7 +64,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, toRef } from 'vue';
+import { defineComponent, ref, toRef, watch, PropType } from 'vue';
 import { Metrics } from '../model/Metrics';
 import { Breakdown } from '../model/Breakdown';
 import { Pie } from 'vue-chartjs'
@@ -97,14 +97,14 @@ ChartJS.register(
 export default defineComponent({
   name: 'BreakdownComponent',
   props: {
-      metrics: {
-          type: Object,
-          required: true
-      },
-      breakdownKey: {
-          type: String,
-          required: true
-      }
+    metrics: {
+      type: Array as PropType<Metrics[]>, // 修复类型定义
+      required: true
+    },
+    breakdownKey: {
+      type: String,
+      required: true
+    }
   },
   components: {
     Pie
@@ -127,20 +127,12 @@ export default defineComponent({
   },
   setup(props) {
 
-    // Create a reactive reference to store the breakdowns.
+    // 创建响应式引用
     const breakdownList = ref<Breakdown[]>([]);
-
-    // Number of breakdowns
     const numberOfBreakdowns = ref(0);
-
-    // Breakdowns Chart Data for breakdowns breakdown Pie Chart
-    let breakdownsChartData = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });
-
-    //Top 5 by accepted prompts
-    let breakdownsChartDataTop5AcceptedPrompts = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });
-
-    //Top 5 by acceptance rate
-    let breakdownsChartDataTop5AcceptanceRate = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });
+    const breakdownsChartData = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });
+    const breakdownsChartDataTop5AcceptedPrompts = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });
+    const breakdownsChartDataTop5AcceptanceRate = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });
 
     const chartOptions = {
       responsive: true,
@@ -154,67 +146,91 @@ export default defineComponent({
 
     const data = toRef(props, 'metrics').value;
 
-    // Process the breakdown separately
-    data.forEach((m: Metrics) => m.breakdown.forEach(breakdownData => 
-    {
-      const breakdownName = breakdownData[props.breakdownKey as keyof typeof breakdownData] as string;
-      let breakdown = breakdownList.value.find(b => b.name === breakdownName);
-
-      if (!breakdown) {
-        // Create a new breakdown object if it does not exist
-        breakdown = new Breakdown({
-          name: breakdownName,
-          acceptedPrompts: breakdownData.acceptances_count,
-          suggestedLinesOfCode: breakdownData.lines_suggested,
-          acceptedLinesOfCode: breakdownData.lines_accepted,
-        });
-        breakdownList.value.push(breakdown);
-      } else {
-        // Update the existing breakdown object
-        breakdown.acceptedPrompts += breakdownData.acceptances_count;
-        breakdown.suggestedLinesOfCode += breakdownData.lines_suggested;
-        breakdown.acceptedLinesOfCode += breakdownData.lines_accepted;
+    // 修复数据处理逻辑
+    const updateBreakdownData = (metricsData: Metrics[]) => {
+      if (!Array.isArray(metricsData)) {
+        console.error('Invalid metrics data:', metricsData);
+        return;
       }
-      // Recalculate the acceptance rate
-      breakdown.acceptanceRate = breakdown.suggestedLinesOfCode !== 0 ? (breakdown.acceptedLinesOfCode / breakdown.suggestedLinesOfCode) * 100 : 0;
-    }));
 
-    //Sort breakdowns map by acceptance rate
-    breakdownList.value.sort((a, b) => b.acceptanceRate - a.acceptanceRate);
+      try {
+        // 重置数据
+        breakdownList.value = [];
 
-    // Get the top 5 breakdowns by acceptance rate
-    const top5BreakdownsAcceptanceRate = breakdownList.value.slice(0, 5);
+        // 处理数据
+        metricsData.forEach((metric: Metrics) => {
+          if (metric.breakdown) {
+            metric.breakdown.forEach(breakdownData => {
+              const breakdownName = breakdownData[props.breakdownKey as keyof typeof breakdownData] as string;
+              let breakdown = breakdownList.value.find(b => b.name === breakdownName);
 
-    breakdownsChartDataTop5AcceptanceRate.value = {
-      labels: top5BreakdownsAcceptanceRate.map(breakdown => breakdown.name),
-      datasets: [
-        {
-          data: top5BreakdownsAcceptanceRate.map(breakdown => breakdown.acceptanceRate.toFixed(2)),
-          backgroundColor: pieChartColors.value,
-        },
-      ],
+              if (!breakdown) {
+                breakdown = new Breakdown({
+                  name: breakdownName,
+                  acceptedPrompts: breakdownData.acceptances_count,
+                  suggestedLinesOfCode: breakdownData.lines_suggested,
+                  acceptedLinesOfCode: breakdownData.lines_accepted,
+                });
+                breakdownList.value.push(breakdown);
+              } else {
+                breakdown.acceptedPrompts += breakdownData.acceptances_count;
+                breakdown.suggestedLinesOfCode += breakdownData.lines_suggested;
+                breakdown.acceptedLinesOfCode += breakdownData.lines_accepted;
+              }
+              
+              breakdown.acceptanceRate = breakdown.suggestedLinesOfCode !== 0 ? 
+                (breakdown.acceptedLinesOfCode / breakdown.suggestedLinesOfCode) * 100 : 0;
+            });
+          }
+        });
+
+        numberOfBreakdowns.value = breakdownList.value.length;
+        updateCharts();
+      } catch (error) {
+        console.error('Error updating breakdown data:', error);
+      }
     };
 
-    //Sort breakdowns map by accepted prompts
-    breakdownList.value.sort((a, b) => b.acceptedPrompts - a.acceptedPrompts);
+    // Add chart update function
+    const updateCharts = () => {
+      // Sort and get top 5 by acceptance rate
+      const sortedByRate = [...breakdownList.value].sort((a, b) => b.acceptanceRate - a.acceptanceRate);
+      const top5ByRate = sortedByRate.slice(0, 5);
 
-    // Get the top 5 breakdowns by accepted prompts
-    const top5BreakdownsAcceptedPrompts = breakdownList.value.slice(0, 5);
-    
-    breakdownsChartDataTop5AcceptedPrompts.value = {
-      labels: top5BreakdownsAcceptedPrompts.map(breakdown => breakdown.name),
-      datasets: [
-        {
-          data: top5BreakdownsAcceptedPrompts.map(breakdown => breakdown.acceptedPrompts),
+      breakdownsChartDataTop5AcceptanceRate.value = {
+        labels: top5ByRate.map(b => b.name),
+        datasets: [{
+          data: top5ByRate.map(b => b.acceptanceRate.toFixed(2)),
           backgroundColor: pieChartColors.value,
-        },
-      ],
+        }],
+      };
+
+      // Sort and get top 5 by accepted prompts
+      const sortedByPrompts = [...breakdownList.value].sort((a, b) => b.acceptedPrompts - a.acceptedPrompts);
+      const top5ByPrompts = sortedByPrompts.slice(0, 5);
+
+      breakdownsChartDataTop5AcceptedPrompts.value = {
+        labels: top5ByPrompts.map(b => b.name),
+        datasets: [{
+          data: top5ByPrompts.map(b => b.acceptedPrompts),
+          backgroundColor: pieChartColors.value,
+        }],
+      };
     };
 
-    numberOfBreakdowns.value = breakdownList.value.length;
+    // 添加监听器
+    watch(
+      () => props.metrics,
+      (newMetrics) => {
+        if (newMetrics && Array.isArray(newMetrics)) {
+          updateBreakdownData(newMetrics);
+        }
+      },
+      { immediate: true, deep: true }
+    );
 
     return { chartOptions, breakdownList, numberOfBreakdowns, 
-      breakdownsChartData, breakdownsChartDataTop5AcceptedPrompts, breakdownsChartDataTop5AcceptanceRate };
+      breakdownsChartData, breakdownsChartDataTop5AcceptedPrompts, breakdownsChartDataTop5AcceptanceRate, updateBreakdownData };
   },
   
 

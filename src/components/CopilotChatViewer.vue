@@ -37,7 +37,7 @@
 </template>
   
 <script lang="ts">
-  import { defineComponent, ref, toRef } from 'vue';
+  import { defineComponent, ref, watch, computed, PropType } from 'vue';
   import { Metrics } from '../model/Metrics';
   import { Line, Bar } from 'vue-chartjs'
   import {
@@ -53,6 +53,7 @@
   Legend
 } from 'chart.js'
 
+
 ChartJS.register(
   ArcElement, 
   CategoryScale,
@@ -66,110 +67,127 @@ ChartJS.register(
 )
 
 export default defineComponent({
-name: 'CopilotChatViewer',
-props: {
-        metrics: {
-            type: Object,
-            required: true
-        }
-    },
-components: {
-Bar,
-Line
-},
-setup(props) {
+  name: 'CopilotChatViewer',
+  props: {
+    metrics: {
+      type: Array as PropType<Metrics[]>,
+      required: true
+    }
+  },
+  components: {
+    Bar,
+    Line
+  },
+  setup(props) {
+    // 使用计算属性来处理累计值
+    const cumulativeNumberTurns = computed(() => {
+      if (!Array.isArray(props.metrics)) return 0;
+      return props.metrics.reduce((sum, m) => sum + (m.total_chat_turns || 0), 0);
+    });
 
-    let cumulativeNumberAcceptances = ref(0);
+    const cumulativeNumberAcceptances = computed(() => {
+      if (!Array.isArray(props.metrics)) return 0;
+      return props.metrics.reduce((sum, m) => sum + (m.total_chat_acceptances || 0), 0);
+    });
 
-    let cumulativeNumberTurns = ref(0);
+    // 修改图表数据的类型定义
+    interface ChartDataset {
+      label: string;
+      data: number[];
+      backgroundColor: string | string[];
+      borderColor: string;
+      borderWidth?: number;
+    }
 
-    //Total Copilot Chat Active Users
-    const totalActiveCopilotChatUsersChartData = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });  
+    interface ChartData {
+      labels: string[];
+      datasets: ChartDataset[];
+    }
 
-    const totalActiveChatUsersChartOptions = {
-    responsive: true,
-    maintainAspectRatio: true,
-    scales: {
-        y: {
-        beginAtZero: true,
-        ticks: {
-            stepSize: 1
-        }
-        }
-    },
-    layout: {
-        padding: {
-        left: 50,
-        right: 50,
-        top: 50,
-        bottom: 50
-        }
-    },
+    // 使用正确的类型定义初始化图表数据
+    const totalNumberAcceptancesAndTurnsChartData = ref<ChartData>({
+      labels: [],
+      datasets: []
+    });
+
+    const totalActiveCopilotChatUsersChartData = ref<ChartData>({
+      labels: [],
+      datasets: []
+    });
+
+    // 更新图表数据的函数
+    const updateChartData = () => {
+      if (!Array.isArray(props.metrics)) return;
+
+      const data = props.metrics;
+      const labels = data.map(m => m.day);
+
+      totalNumberAcceptancesAndTurnsChartData.value = {
+        labels,
+        datasets: [
+          {
+            label: 'Total Acceptances',
+            data: data.map(m => m.total_chat_acceptances || 0),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1
+          },
+          {
+            label: 'Total Turns',
+            data: data.map(m => m.total_chat_turns || 0),
+            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+            borderColor: 'rgba(153, 102, 255, 1)',
+            borderWidth: 1
+          }
+        ]
+      };
+
+      totalActiveCopilotChatUsersChartData.value = {
+        labels,
+        datasets: [{
+          label: 'Total Active Copilot Chat Users',
+          data: data.map(m => m.total_active_chat_users || 0),
+          backgroundColor: 'rgba(0, 0, 139, 0.2)',
+          borderColor: 'rgba(255, 99, 132, 1)',
+          borderWidth: 1
+        }]
+      };
     };
+
+    // 监听 metrics 变化并更新图表
+    watch(
+      () => props.metrics,
+      () => {
+        updateChartData();
+      },
+      { immediate: true, deep: true }
+    );
 
     const chartOptions = {
-        responsive: true,
-        maintainAspectRatio: true,
-        height: 300,
-        width: 300,
-        layout: {
-            padding: {
-            left: 150,
-            right: 150,
-            top: 20,
-            bottom: 40
-            }
-        },
+      responsive: true,
+      maintainAspectRatio: true
     };
 
-    //Total Number Acceptances And Turns
-    const totalNumberAcceptancesAndTurnsChartData = ref<{ labels: string[]; datasets: any[] }>({ labels: [], datasets: [] });
-
-    const data = toRef(props, 'metrics').value;
-
-    cumulativeNumberTurns.value = 0;
-    const cumulativeNumberTurnsData = data.map((m: Metrics)  => {        
-        cumulativeNumberTurns.value += m.total_chat_turns;
-        return m.total_chat_turns;
-    });
-
-    cumulativeNumberAcceptances.value = 0;
-    const cumulativeNumberAcceptancesData = data.map((m: Metrics)  => {        
-        cumulativeNumberAcceptances.value += m.total_chat_acceptances;
-        return m.total_chat_acceptances;
-    });
-
-    totalNumberAcceptancesAndTurnsChartData.value = {
-    labels: data.map((m: Metrics)  => m.day),
-        datasets: [
-        {
-            label: 'Total Acceptances',
-            data: cumulativeNumberAcceptancesData,
-            backgroundColor: 'rgba(75, 192, 192, 0.2)',
-            borderColor: 'rgba(75, 192, 192, 1)'
-
-        },
-        {
-            label: 'Total Turns',
-            data: cumulativeNumberTurnsData,
-            backgroundColor: 'rgba(153, 102, 255, 0.2)',
-            borderColor: 'rgba(153, 102, 255, 1)'
-        }]
+    const totalActiveChatUsersChartOptions = {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 1 }
+        }
+      }
     };
 
-    totalActiveCopilotChatUsersChartData.value = {
-        labels: data.map((m: Metrics) => m.day),
-        datasets: [
-        {
-            label: 'Total Active Copilot Chat Users',
-            data: data.map((m: Metrics) => m.total_active_chat_users),
-            backgroundColor: 'rgba(0, 0, 139, 0.2)', // dark blue with 20% opacity
-            borderColor: 'rgba(255, 99, 132, 1)'
-        }]
+    return {
+      cumulativeNumberTurns,
+      cumulativeNumberAcceptances,
+      totalNumberAcceptancesAndTurnsChartData,
+      totalActiveCopilotChatUsersChartData,
+      chartOptions,
+      totalActiveChatUsersChartOptions
     };
-    
-    return {  totalActiveCopilotChatUsersChartData, totalActiveChatUsersChartOptions,cumulativeNumberAcceptances, cumulativeNumberTurns, totalNumberAcceptancesAndTurnsChartData, chartOptions};
-}
+  }
 });
 
 </script>

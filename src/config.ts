@@ -1,4 +1,4 @@
-const PROPS = ["MOCKED_DATA", "SCOPE", "GITHUB_ORG", "GITHUB_ENT", "GITHUB_TEAM", "GITHUB_TOKEN", "GITHUB_API"];
+const PROPS = ["MOCKED_DATA", "SCOPE", "GITHUB_ORG", "GITHUB_ORGs", "GITHUB_ENT", "GITHUB_TEAM", "GITHUB_TOKEN", "GITHUB_API"];
 
 const env: any = {};
 PROPS.forEach(prop => {
@@ -20,11 +20,13 @@ if (VALID_SCOPE.includes(env.VUE_APP_SCOPE)) {
 
 let apiUrl: string;
 const githubOrgName = env.VUE_APP_GITHUB_ORG;
+const githubOrgs = env.VUE_APP_GITHUB_ORGs; //add orgs contents
 const githubEntName = env.VUE_APP_GITHUB_ENT;
 const baseApi = env.VUE_APP_GITHUB_API;
 
 
 let scopeName: string;
+let orgNames = githubOrgs.split('|'); //add orgs contents
 if (scopeType === 'organization') {
 	scopeName = githubOrgName;
 	apiUrl = `${baseApi || 'https://api.github.com'}/orgs/${githubOrgName}`;
@@ -38,13 +40,16 @@ else {
 }
 
 const config: Config = {
+	changeOrg: changeOrg,
+	changeOrgs: changeOrgs,
 	mockedData: env.VUE_APP_MOCKED_DATA === "true",
 	scope: {
 		type: scopeType,
-		name: scopeName
+		name: scopeName,
 	},
 	github: {
 		org: githubOrgName,
+		orgs: orgNames, //add orgs contents
 		ent: githubEntName,
 		team: env.VUE_APP_GITHUB_TEAM,
 		token: env.VUE_APP_GITHUB_TOKEN,
@@ -56,9 +61,25 @@ if (!config.mockedData && !config.github.token && !config.github.baseApi) {
 	throw new Error("VUE_APP_GITHUB_TOKEN environment variable must be set or calls have to be proxied by the api layer.");
 }
 
+function changeOrg(orgName: string) {
+	if (config.scope.type === 'organization') {
+		config.github.org = orgName;
+		config.github.apiUrl = `${config.github.baseApi || 'https://api.github.com'}/orgs/${orgName}`;
+		config.scope.name = orgName;
+	}
+}
+function changeOrgs(newOrgNames: string) {
+	orgNames = newOrgNames.split('|');
+	config.github.orgs = orgNames;
+}
+
+export { changeOrg };
+export { changeOrgs };
 export default config;
 
 interface Config {
+	changeOrg: (orgName: string) => void;
+	changeOrgs: (newOrgNames: string) => void;
 	mockedData: boolean;
 	scope: {
 		type: 'organization' | 'enterprise';
@@ -68,6 +89,9 @@ interface Config {
 		/** The GitHub organization name. */
 		org: string; 
 		/** The GitHub enterprise name. */
+		orgs: string[]; //add orgs contents
+		/** The GitHub enterprise name. */
+
 		ent: string;
 		/** The GitHub team name. */
 		team: string;

@@ -10,6 +10,8 @@ import { Metrics } from "../model/Metrics";
 import organizationMockedResponse from '../assets/organization_response_sample.json';
 import enterpriseMockedResponse from '../assets/enterprise_response_sample.json';
 import config from '../config';
+import { GHOrgs } from "@/model/GHOrgs";
+import { GHOrg } from "@/model/GHOrgs";
 
 const headers = {
   Accept: "application/vnd.github+json",
@@ -33,8 +35,6 @@ export const getMetricsApi = async (): Promise<Metrics[]> => {
        headers
       }
     );
-
-
     metricsData = response.data.map((item: any) => new Metrics(item));
   }
   return metricsData;
@@ -62,10 +62,27 @@ export const getTeamMetricsApi = async (): Promise<Metrics[]> => {
         },
       }
     );
-
+    console.log(response.data);
     return response.data.map((item: any) => new Metrics(item));
   }
   
   return [];
 
 }
+
+export const getOrgs = async (): Promise<GHOrgs> => {
+  const response = await axios.get(
+    `https://api.github.com/user/orgs`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${config.github.token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    }
+  );
+  // create a new GhOrgs object with now value
+  const resGHOrgs = new GHOrgs(response.data);
+  return resGHOrgs;
+  };
+  

@@ -5,25 +5,31 @@
         <v-icon>mdi-github</v-icon>
       </v-btn>
 
-      <v-toolbar-title class="toolbar-title">Copilot Metrics Viewer | {{ capitalizedItemName }} : {{ displayedViewName }}  {{ teamName }}
-         
+      <v-toolbar-title class="toolbar-title">Copilot Metrics Viewer | {{ capitalizedItemName }} : {{ displayViewOrgsName }}  {{ teamName }}
       </v-toolbar-title>
       <h2 class="error-message"> {{ mockedDataMessage }} </h2>
       <v-spacer></v-spacer>
-
+   
+      <v-select
+        v-model="currentOrg"
+        :items="loadOrgsName"
+        label="Select Organization"
+        dense
+        outlined
+        class="mx-4"
+        style="max-width: 300px;"
+        @update:model-value="handleOrgChange"
+      ></v-select>
       <!-- Conditionally render the logout button -->
       <v-btn v-if="showLogoutButton" href="/logout" class="logout-button">Logout</v-btn>
 
       <template v-slot:extension>
-
         <v-tabs v-model="tab" align-tabs="title">
           <v-tab v-for="item in tabItems" :key="item" :value="item">
             {{ item }}
           </v-tab>
         </v-tabs>
-
       </template>
-
     </v-toolbar>
 
     <!-- API Error Message -->
@@ -60,6 +66,8 @@ import { getTeamMetricsApi } from '../api/GitHubApi';
 import { getSeatsApi } from '../api/ExtractSeats';
 import { Metrics } from '../model/Metrics';
 import { Seat } from "../model/Seat";
+import { GHOrgs } from '@/model/GHOrgs';
+import {GHOrg} from '@/model/GHOrgs';
 
 //Components
 import MetricsViewer from './MetricsViewer.vue'
@@ -68,6 +76,9 @@ import CopilotChatViewer from './CopilotChatViewer.vue'
 import SeatsAnalysisViewer from './SeatsAnalysisViewer.vue'
 import ApiResponse from './ApiResponse.vue'
 import config from '../config';
+import { changeOrg } from '../config';
+import { getOrgs } from '../api/GitHubApi';
+import { text } from 'express';
 
 export default defineComponent({
   name: 'MainComponent',
@@ -82,6 +93,9 @@ export default defineComponent({
     gitHubOrgName() {
       return config.github.org;
     },
+    gitHubOrgNames() {
+      return config.github.orgs;
+    },
     itemName() {
       return config.scope.type;
     },
@@ -91,6 +105,23 @@ export default defineComponent({
     displayedViewName(): string {
       return config.scope.name;
     },
+    //add the orgs names to the view
+    displayViewOrgsName(): string[] {
+      return config.github.orgs;
+    },
+    loadOrgsName(): string[]  {
+      console.log('now loadOrgsName:', this.userOrgs);
+      return config.github.orgs;
+    },
+    defaultSelectOrg: {
+      get() {
+        return this.currentOrg;
+      },
+      set(value: string) {
+        this.currentOrg = value;
+      }
+    }
+    ,
     isScopeOrganization() {
       return config.scope.type === 'organization';
     },
@@ -113,72 +144,114 @@ export default defineComponent({
   data () {
     return {
       tabItems: ['languages', 'editors', 'copilot chat', 'seat analysis', 'api response'],
-      tab: null
+      tab: null,
+      currentOrg: '',
     }
   },
   created() {
     this.tabItems.unshift(this.itemName);
+    this.currentOrg = config.github.orgs[0];
   },
+  methods: {
+    handleOrgChange(newValue: string) {
+      this.currentOrg = newValue;
+      this.defaultSelectOrg = newValue;
+      this.$forceUpdate();
+      this.dataUpdate();
+    },
+    dataUpdate() {
+       config.github.org = this.currentOrg;
+       config.changeOrg(this.currentOrg);
+       this.refreshData();
+       console.log(this.metrics.values);
+    },
+  },
+
   setup() {
-      const metricsReady = ref(false);
-      const metrics = ref<Metrics[]>([]);
-      const seatsReady = ref(false); 
-      const seats = ref<Seat[]>([]); 
-      // API Error Message
-      const apiError = ref<string | undefined>(undefined);
-      const signInRequired = ref(false);
-      
-      function processError(error: any) {
-        console.log(error);
-        // Check the status code of the error response
-        if (error.response && error.response.status) {
-          switch (error.response.status) {
-            case 401:
-              apiError.value = '401 Unauthorized access - check if your token in the .env file is correct.';
-              if (config.github.baseApi === '/api/github') {
-                // show sign in button only when using the Proxy
-                signInRequired.value = true;
-              }
-              break;
-            case 404:
-              apiError.value = `404 Not Found - is the ${config.scope.type} '${config.scope.name}' correct?`;
-              // Update apiError with the error message
-              apiError.value = error.message;
-          }
-          // Add a new line to the apiError message
-          apiError.value += ' <br> If .env file is modified, restart the app for the changes to take effect.';
+    const metricsReady = ref(false);
+    const metrics = ref<Metrics[]>([]);
+    const seatsReady = ref(false); 
+    const seats = ref<Seat[]>([]); 
+    const apiError = ref<string | undefined>(undefined);
+    const signInRequired = ref(false);
+    const userOrgs = ref<GHOrgs>();
+    // Add ref for loadOrgsName
+    const loadOrgsName = ref<string[]>([]);
+    
+    const processError = (error: any) => {
+      console.log(error);
+      if (error.response && error.response.status) {
+        switch (error.response.status) {
+          case 401:
+            apiError.value = '401 Unauthorized access - check if your token in the .env file is correct.';
+            if (config.github.baseApi === '/api/github') {
+              signInRequired.value = true;
+            }
+            break;
+          case 404:
+            apiError.value = `404 Not Found - is the ${config.scope.type} '${config.scope.name}' correct?`;
+            apiError.value = error.message;
         }
+        apiError.value += ' <br> If .env file is modified, restart the app for the changes to take effect.';
+      }
+    };
+
+    const refreshData = async () => {
+      try {
+        // Reset error states
+        apiError.value = undefined;
+        signInRequired.value = false;
+        
+        // Update the value property of the ref
+        userOrgs.value = await getOrgs();
+        let orgs_string = '';
+        if (userOrgs.value?.orgs) {
+          orgs_string = userOrgs.value.orgs
+            .map((org: GHOrg) => org.login)
+            .join('|');
+          config.changeOrgs(orgs_string);
+          // Update the ref instead of this.displayViewOrgsName
+          console.log('orgs_string:', config.github.orgs);
+          loadOrgsName.value = config.github.orgs;
+        }
+        //userOrgs.value = noworgs;
+
+        // Fetch metrics based on team configuration
+        if (config.github.team && config.github.team.trim() !== '') {
+          metrics.value = await getTeamMetricsApi();
+        } else {
+          metrics.value = await getMetricsApi();
+        }
+        metricsReady.value = true;
+        // Fetch seats data
+        seats.value = await getSeatsApi();
+        seatsReady.value = true;
+      } catch (error) {
+        processError(error);
+      }
+      //udpate all the viewer components - MetricsViewer,BreakdownComponent,CopilotChatViewer,SeatsAnalysisViewer
+      if(MetricsViewer) {
+        //refresh the MetricsViewer
+        
       }
 
-      if(config.github.team && config.github.team.trim() !== '') {
-          getTeamMetricsApi().then(data => {
-          metrics.value = data;
 
-          // Set metricsReady to true after the call completes.
-          metricsReady.value = true;
-        }).catch(processError);
-      }
+    };
 
-      if (metricsReady.value === false) {
-        getMetricsApi().then(data => {
-          metrics.value = data;
+    // Initial data load
+    refreshData();
 
-          // Set metricsReady to true after the call completes.
-          metricsReady.value = true;
-            
-        }).catch(processError);
-    }
-     
-    getSeatsApi().then(data => {
-          seats.value = data;
-
-          // Set seatsReady to true after the call completes.
-          seatsReady.value = true;
-            
-        }).catch(processError);
-
-      return { metricsReady, metrics, seatsReady, seats, apiError, signInRequired };
-    }
+    return { 
+      metricsReady, 
+      metrics, 
+      seatsReady, 
+      seats, 
+      apiError, 
+      signInRequired,
+      userOrgs, // Add to returned object
+      refreshData // Expose refreshData for potential reuse
+    };
+  }
 })
 </script>
 
