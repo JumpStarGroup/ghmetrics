@@ -61,13 +61,15 @@
 
 <script lang='ts'>
 import { defineComponent, ref } from 'vue'
-import { getMetricsApi } from '../api/GitHubApi';
+import { getMetricsApi, getTeams } from '../api/GitHubApi';
 import { getTeamMetricsApi } from '../api/GitHubApi';
 import { getSeatsApi } from '../api/ExtractSeats';
 import { Metrics } from '../model/Metrics';
 import { Seat } from "../model/Seat";
 import { GHOrgs } from '@/model/GHOrgs';
-import {GHOrg} from '@/model/GHOrgs';
+import { GHOrg } from '@/model/GHOrgs';
+import { GHTeam } from '@/model/GHTeams';
+import { GHTeams } from '@/model/GHTeams';
 
 //Components
 import MetricsViewer from './MetricsViewer.vue'
@@ -76,8 +78,9 @@ import CopilotChatViewer from './CopilotChatViewer.vue'
 import SeatsAnalysisViewer from './SeatsAnalysisViewer.vue'
 import ApiResponse from './ApiResponse.vue'
 import config from '../config';
-import { changeOrg } from '../config';
+//import { changeOrg } from '../config';
 import { getOrgs } from '../api/GitHubApi';
+import { getTeamsForOrg } from '../api/GitHubApi';
 import { text } from 'express';
 
 export default defineComponent({
@@ -90,6 +93,7 @@ export default defineComponent({
     ApiResponse
   },
   computed: {
+
     gitHubOrgName() {
       return config.github.org;
     },
@@ -110,8 +114,8 @@ export default defineComponent({
       return config.github.orgs;
     },
     loadOrgsName(): string[]  {
-      console.log('now loadOrgsName:', this.userOrgs);
-      return config.github.orgs;
+      console.log('loadOrgsName:', config.github.allGithubOrgs);
+      return config.github.allGithubOrgs.split('|');
     },
     defaultSelectOrg: {
       get() {
@@ -154,16 +158,25 @@ export default defineComponent({
   },
   methods: {
     handleOrgChange(newValue: string) {
-      this.currentOrg = newValue;
-      this.defaultSelectOrg = newValue;
+      config.changeCurrentOrg(newValue);
+      config.changeCurrentTeam(config.github.currentSelTeams[0]);
       this.$forceUpdate();
       this.dataUpdate();
     },
     dataUpdate() {
-       config.github.org = this.currentOrg;
-       config.changeOrg(this.currentOrg);
-       this.refreshData();
-       console.log(this.metrics.values);
+      //  config.github.org = this.currentOrg;
+      //  config.changeOrg(this.currentOrg);
+      //  this.refreshData();
+      //  console.log(this.metrics.values);
+      
+      // if config.currentselectteam is 'ALL', then get the metrics for all the teams in the org
+      // swtich to orgs get the metrics
+      if (config.github.currentSelTeams[0] === 'ALL') {
+        this.refreshData();
+      } else {
+        // get the metrics for the selected team
+        this.refreshData();
+      }
     },
   },
 
@@ -177,6 +190,38 @@ export default defineComponent({
     const userOrgs = ref<GHOrgs>();
     // Add ref for loadOrgsName
     const loadOrgsName = ref<string[]>([]);
+    //define the initlization: get the orgs contents then init config.github.allGithubOrgs 
+    // and get the teams contents for each orgs then init config.github.allGithubTeams
+    const initOrgsTeams = async () => {
+      //get the orgs with the function : getorgs from githubapi.ts and store to a GHOrgs object
+      const orgs = await getOrgs();
+      let orgs_strings: string[] = [];
+      let teams_strings: string[] = [];
+      //if config.github.ent is empty or null, 
+      // then insert with Ent:enterprieName  into config.github.allGithubOrgs in the beginning
+      if (config.github.ent && config.github.ent !== '') {
+        orgs_strings.push('Ent-'+config.github.ent);
+        teams_strings.push(config.github.ent+':ALL');
+      };
+      //get the org names from the GHOrgs object and contact it to a string seperate by '|';
+      // and then get the teams information for each orgs with the function : getTeamsForOrg from githubapi.ts
+      // and store the teams information to a GHTeams object
+       orgs.orgs.forEach(async ( org: GHOrg ):Promise<void> => {
+         orgs_strings.push(org.login);
+         let nowteams_strings = org.login + ':ALL|'; 
+         const teams = await getTeamsForOrg(org.login);
+         teams.teams.forEach((team: GHTeam):void => {
+            nowteams_strings += team.name + '|';
+            console.log('team:', team.name);
+         });
+         nowteams_strings = nowteams_strings.slice(0, -1);//remove the last '|'
+         teams_strings.push(nowteams_strings);
+       });
+    config.initORgs_Teams(orgs_strings, teams_strings);
+    config.changeCurrentOrg(config.github.allGithubOrgs[0]);
+    config.changeCurrentTeam(config.github.allGithubTeams[0]);
+    
+  };
     
     const processError = (error: any) => {
       console.log(error);
@@ -201,23 +246,9 @@ export default defineComponent({
         // Reset error states
         apiError.value = undefined;
         signInRequired.value = false;
-        
-        // Update the value property of the ref
-        userOrgs.value = await getOrgs();
-        let orgs_string = '';
-        if (userOrgs.value?.orgs) {
-          orgs_string = userOrgs.value.orgs
-            .map((org: GHOrg) => org.login)
-            .join('|');
-          config.changeOrgs(orgs_string);
-          // Update the ref instead of this.displayViewOrgsName
-          console.log('orgs_string:', config.github.orgs);
-          loadOrgsName.value = config.github.orgs;
-        }
-        //userOrgs.value = noworgs;
 
         // Fetch metrics based on team configuration
-        if (config.github.team && config.github.team.trim() !== '') {
+        if (config.github.team && config.github.team.trim() !== 'ALL') {
           metrics.value = await getTeamMetricsApi();
         } else {
           metrics.value = await getMetricsApi();
