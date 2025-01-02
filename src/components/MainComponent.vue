@@ -5,21 +5,15 @@
         <v-icon>mdi-github</v-icon>
       </v-btn>
 
-      <v-toolbar-title class="toolbar-title">Copilot Metrics Viewer | {{ capitalizedItemName }} : {{ displayViewOrgsName }}  {{ teamName }}
+      <v-toolbar-title class="toolbar-title">Copilot Metrics Viewer 
       </v-toolbar-title>
       <h2 class="error-message"> {{ mockedDataMessage }} </h2>
       <v-spacer></v-spacer>
-   
-      <v-select
-        v-model="currentOrg"
-        :items="loadOrgsName"
-        label="Select Organization"
-        dense
-        outlined
-        class="mx-4"
-        style="max-width: 300px;"
-        @update:model-value="handleOrgChange"
-      ></v-select>
+      <div v-for="(items, index) in allItems" :key="index">
+        <v-autocomplete
+          label="Enterprise & Orgnization" :items=items
+        ></v-autocomplete>
+      </div>
       <!-- Conditionally render the logout button -->
       <v-btn v-if="showLogoutButton" href="/logout" class="logout-button">Logout</v-btn>
 
@@ -61,7 +55,7 @@
 
 <script lang='ts'>
 import { defineComponent, ref } from 'vue'
-import { getMetricsApi, getTeams } from '../api/GitHubApi';
+import { getMetricsApi } from '../api/GitHubApi';
 import { getTeamMetricsApi } from '../api/GitHubApi';
 import { getSeatsApi } from '../api/ExtractSeats';
 import { Metrics } from '../model/Metrics';
@@ -100,35 +94,12 @@ export default defineComponent({
     gitHubOrgNames() {
       return config.github.orgs;
     },
-    itemName() {
-      return config.scope.type;
-    },
-    capitalizedItemName():string {
-      return this.itemName.charAt(0).toUpperCase() + this.itemName.slice(1);
-    },
-    displayedViewName(): string {
-      return config.scope.name;
-    },
+
     //add the orgs names to the view
     displayViewOrgsName(): string[] {
       return config.github.orgs;
-    },
-    loadOrgsName(): string[]  {
-      console.log('loadOrgsName:', config.github.allGithubOrgs);
-      return config.github.allGithubOrgs.split('|');
-    },
-    defaultSelectOrg: {
-      get() {
-        return this.currentOrg;
-      },
-      set(value: string) {
-        this.currentOrg = value;
-      }
     }
     ,
-    isScopeOrganization() {
-      return config.scope.type === 'organization';
-    },
     teamName() {
       var teamName;
       if (config.github.team && config.github.team.trim() !== '') {
@@ -143,18 +114,22 @@ export default defineComponent({
     },
     showLogoutButton() {
       return config.github.baseApi === '/api/github';
-    }
+    },
+     loadOrgsName(){
+      return config.github.allGithubOrgs;
+     }
   },
   data () {
     return {
       tabItems: ['languages', 'editors', 'copilot chat', 'seat analysis', 'api response'],
       tab: null,
-      currentOrg: '',
+      currentOrg: config.github.allGithubOrgs,
+      itemName: 'Enterprises',
+      allItems: [] as any[][] ,
     }
   },
   created() {
     this.tabItems.unshift(this.itemName);
-    this.currentOrg = config.github.orgs[0];
   },
   methods: {
     handleOrgChange(newValue: string) {
@@ -163,23 +138,14 @@ export default defineComponent({
       this.$forceUpdate();
       this.dataUpdate();
     },
-    dataUpdate() {
-      //  config.github.org = this.currentOrg;
-      //  config.changeOrg(this.currentOrg);
-      //  this.refreshData();
-      //  console.log(this.metrics.values);
-      
+    dataUpdate() {      
       // if config.currentselectteam is 'ALL', then get the metrics for all the teams in the org
       // swtich to orgs get the metrics
-      if (config.github.currentSelTeams[0] === 'ALL') {
-        this.refreshData();
-      } else {
-        // get the metrics for the selected team
-        this.refreshData();
-      }
     },
+    setOrgs(stringOrgs: string[]) {
+      this.allItems = [stringOrgs];
+    }
   },
-
   setup() {
     const metricsReady = ref(false);
     const metrics = ref<Metrics[]>([]);
@@ -188,13 +154,12 @@ export default defineComponent({
     const apiError = ref<string | undefined>(undefined);
     const signInRequired = ref(false);
     const userOrgs = ref<GHOrgs>();
-    // Add ref for loadOrgsName
-    const loadOrgsName = ref<string[]>([]);
+
     //define the initlization: get the orgs contents then init config.github.allGithubOrgs 
     // and get the teams contents for each orgs then init config.github.allGithubTeams
     const initOrgsTeams = async () => {
       //get the orgs with the function : getorgs from githubapi.ts and store to a GHOrgs object
-      const orgs = await getOrgs();
+      let orgs = await getOrgs();
       let orgs_strings: string[] = [];
       let teams_strings: string[] = [];
       //if config.github.ent is empty or null, 
@@ -202,25 +167,30 @@ export default defineComponent({
       if (config.github.ent && config.github.ent !== '') {
         orgs_strings.push('Ent-'+config.github.ent);
         teams_strings.push(config.github.ent+':ALL');
-      };
+      }
       //get the org names from the GHOrgs object and contact it to a string seperate by '|';
       // and then get the teams information for each orgs with the function : getTeamsForOrg from githubapi.ts
       // and store the teams information to a GHTeams object
-       orgs.orgs.forEach(async ( org: GHOrg ):Promise<void> => {
-         orgs_strings.push(org.login);
-         let nowteams_strings = org.login + ':ALL|'; 
-         const teams = await getTeamsForOrg(org.login);
-         teams.teams.forEach((team: GHTeam):void => {
-            nowteams_strings += team.name + '|';
-            console.log('team:', team.name);
-         });
-         nowteams_strings = nowteams_strings.slice(0, -1);//remove the last '|'
-         teams_strings.push(nowteams_strings);
-       });
+      for (let i = 0; i < orgs.orgs.length; i++) {
+        orgs_strings.push(orgs.orgs[i].login);
+        let nowteams_string = orgs.orgs[i].login + ':ALL|'; 
+        let teams = await getTeamsForOrg(orgs.orgs[i].login);
+        teams.teams.forEach((team: GHTeam):void => {
+          nowteams_string += team.name + '|';
+        });
+        nowteams_string = nowteams_string.slice(0, -1);//remove the last '|'    
+        teams_strings.push(nowteams_string);
+      }
+
+    //init the orgs and teams information to the config object
     config.initORgs_Teams(orgs_strings, teams_strings);
+    if(config.isMSFT) {
+      config.github.allGithubOrgs = config.github.allGithubOrgs.filter(org => org !== 'MicrosoftCopilot');
+      config.github.allGithubTeams = config.github.allGithubTeams.filter(team => team.startsWith('MicrosoftCopilot') === false);
+    }
     config.changeCurrentOrg(config.github.allGithubOrgs[0]);
-    config.changeCurrentTeam(config.github.allGithubTeams[0]);
-    
+    config.orgsTeamsInited = true;
+     
   };
     
     const processError = (error: any) => {
@@ -234,12 +204,14 @@ export default defineComponent({
             }
             break;
           case 404:
-            apiError.value = `404 Not Found - is the ${config.scope.type} '${config.scope.name}' correct?`;
+            apiError.value = `404 Not Found - is the right correct correct?`;
             apiError.value = error.message;
         }
         apiError.value += ' <br> If .env file is modified, restart the app for the changes to take effect.';
       }
     };
+    //console.log(ref(config.github.allGithubOrgs));
+   
 
     const refreshData = async () => {
       try {
@@ -248,10 +220,29 @@ export default defineComponent({
         signInRequired.value = false;
 
         // Fetch metrics based on team configuration
-        if (config.github.team && config.github.team.trim() !== 'ALL') {
+        let entAndORg = false;
+        if (config.github.currentSelOrg.startsWith('Ent-')) {
+          // this is the configuration for enterprise
+          const entName = config.github.currentSelOrg.split('-')[1];
+          //https://api.github.com/enterprises/JumpStarGroup/copilot/usage
+          config.github.apiUrl = config.github.baseApi + '/enterprises/' + entName;
+          entAndORg = true;
+        } else if(config.github.currentSelTeam !== 'ALL') {
+          // this is the configuration for a specific team in selected org
+          //https://api.github.com/orgs/CopilotNext/team/Dewu/copilot/usage
+          config.github.apiUrl = config.github.baseApi + '/orgs/' + config.github.currentSelOrg + '/team/' + config.github.currentSelTeam;
+        } else {
+          // this is the configuration for all teams in selected org
+          //https://api.github.com/orgs/CopilotNext/copilot/usage
+          config.github.apiUrl = config.github.baseApi + '/orgs/' + config.github.currentSelOrg;
+          entAndORg = true;
+        }
+        if (!entAndORg) {
           metrics.value = await getTeamMetricsApi();
+          console.log('metrics:', metrics.value);
         } else {
           metrics.value = await getMetricsApi();
+          console.log('metrics:', metrics.value);
         }
         metricsReady.value = true;
         // Fetch seats data
@@ -265,13 +256,14 @@ export default defineComponent({
         //refresh the MetricsViewer
         
       }
-
+    
 
     };
-
-    // Initial data load
-    refreshData();
-
+    //refreshData should be waiting for executing of initOrgsTeams
+    Promise.resolve(initOrgsTeams()).then(() => {
+      refreshData();
+    }); 
+    
     return { 
       metricsReady, 
       metrics, 
@@ -280,7 +272,6 @@ export default defineComponent({
       apiError, 
       signInRequired,
       userOrgs, // Add to returned object
-      refreshData // Expose refreshData for potential reuse
     };
   }
 })

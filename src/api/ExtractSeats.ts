@@ -15,14 +15,21 @@ const headers = {
 export const getSeatsApi = async (): Promise<Seat[]> => {
   const perPage = 100;
   let page = 1;
-  const seatUrl = `${config.github.apiUrl}/copilot/billing/seats`;
+  //since currtlly there is no teams seats api for enterprise so we cannot get the seats data for enterprise
+  if(config.github.currentSelOrg.startsWith('Ent-')){
+    console.log("Enterprise does not have seats data.");
+    return [];
+  }
+  const seatUrl = `${config.github.baseApi}/orgs/${config.github.currentSelOrg}/copilot/billing/seats`;
+  
+  // because there is no teams seats api so we need return the seats from the organization
   let seatsData: Seat[] = [];
 
   let response;
 
   if (config.mockedData) {
     console.log("Using mock data. Check VUE_APP_MOCKED_DATA variable.");
-    response = config.scope.type === "organization" ? organizationMockedResponse_seats : enterpriseMockedResponse_seats;
+    response =  organizationMockedResponse_seats ;//: enterpriseMockedResponse_seats;
     seatsData = seatsData.concat(response.seats.map((item: any) => new Seat(item)));
     return seatsData;
   }

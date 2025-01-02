@@ -14,6 +14,7 @@ import { GHOrgs } from "@/model/GHOrgs";
 import { GHOrg } from "@/model/GHOrgs";
 import { GHTeam } from "@/model/GHTeams";
 import { GHTeams } from "@/model/GHTeams";
+import e from "express";
 
 const headers = {
   Accept: "application/vnd.github+json",
@@ -28,11 +29,18 @@ export const getMetricsApi = async (): Promise<Metrics[]> => {
 
   if (config.mockedData) {
     console.log("Using mock data. Check VUE_APP_MOCKED_DATA variable.");
-    response = config.scope.type === "organization" ? organizationMockedResponse : enterpriseMockedResponse;
+    response = organizationMockedResponse ;//: enterpriseMockedResponse;
     metricsData = response.map((item: any) => new Metrics(item));
   } else {
+    let metricsUrl = '';
+    if (config.github.currentSelOrg.startsWith('Ent-')) {
+      const currentEnt = config.github.currentSelOrg.split('-')[1];
+      metricsUrl = `${config.github.baseApi}/enterprises/${currentEnt}/copilot/usage`;
+    }else{
+      metricsUrl = `${config.github.baseApi}/orgs/${config.github.currentSelOrg}/copilot/usage`;
+    }
     response = await axios.get(
-      `${config.github.apiUrl}/copilot/usage`,
+      metricsUrl,
       {
        headers
       }
@@ -43,11 +51,8 @@ export const getMetricsApi = async (): Promise<Metrics[]> => {
 };
 
 export const getTeamMetricsApi = async (): Promise<Metrics[]> => {
-  
-  console.log("config.github.currentSelTeam: " + config.github.currentSelTeam);
-
   const response = await axios.get(
-      `${config.github.apiUrl}/team/${config.github.currentSelTeam}/copilot/usage`,
+      `${config.github.baseApi}/orgs/${config.github.currentSelOrg}/team/${config.github.currentSelTeam}/copilot/usage`,
       {
         headers: {
           Accept: "application/vnd.github+json",
@@ -56,7 +61,6 @@ export const getTeamMetricsApi = async (): Promise<Metrics[]> => {
         },
       }
     );
-    console.log(response.data);
     return response.data.map((item: any) => new Metrics(item));
 
 }
@@ -67,8 +71,8 @@ export const getOrgs = async (): Promise<GHOrgs> => {
   });
   //just return the data from the response if it is not null, or empty array if null
   if (!response.data) 
-    return new GHOrgs([]);
-  return new GHOrgs(response.data);
+    return  Promise.resolve(new GHOrgs([]));
+  return Promise.resolve(new GHOrgs(response.data));
 }
 
 //define a new function to get the teams for a specific organization
@@ -77,8 +81,8 @@ export const getTeamsForOrg = async (orgName: string): Promise<GHTeams> => {
     headers
   });
   if (!response.data) 
-    return new GHTeams([]);
-  return new GHTeams(response.data);
+    return Promise.resolve(new GHTeams([]));
+  return Promise.resolve(new GHTeams(response.data));
 }
 
 

@@ -45,7 +45,7 @@ export default defineComponent({
   },
   data() {
     return {
-      vueAppScope: config.scope.type,
+      //vueAppScope: config.scope.type,
       showCopyMessage: false,
       showSeatMessage: false,
       isError: false,

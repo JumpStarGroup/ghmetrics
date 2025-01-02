@@ -4,7 +4,7 @@ import { GHOrg } from "./model/GHOrgs";
 import { GHTeam } from "./model/GHTeams";
 import { defineComponent, ref } from 'vue'
 
-const PROPS = ["MOCKED_DATA", "SCOPE", "GITHUB_ORG", "GITHUB_ORGs", "GITHUB_ENT", "GITHUB_TEAM", "GITHUB_TOKEN", "GITHUB_API"];
+const PROPS = ["MOCKED_DATA", "SCOPE", "GITHUB_ORG", "GITHUB_ORGs", "GITHUB_ENT", "GITHUB_TEAM", "GITHUB_TOKEN", "GITHUB_API", "MICROSOFT"];
 
 const env: any = {};
 PROPS.forEach(prop => {
@@ -24,66 +24,51 @@ const VALID_SCOPE = ['organization', 'enterprise'];
 // 	scopeType = env.VUE_APP_SCOPE as 'enterprise' | 'organization'
 // }
 
-let apiUrl: string = '';
+const apiUrl = ref<string>('');
 const githubOrgName = env.VUE_APP_GITHUB_ORG;
 const githubOrgs = env.VUE_APP_GITHUB_ORGs; //add orgs contents
-const githubEntName = env.VUE_APP_GITHUB_ENT;
+const entName = env.VUE_APP_GITHUB_ENT;
 const baseApi = env.VUE_APP_GITHUB_API; 
-
+const isMicrosoft = env.VUE_APP_MICROSOFT === 'true';
 //add the tring array 'allGithubOrgs' to store all the organization names for all the 
 //enterprises the current user belongs to with the formation should be
 // 'org1|org2|org3|...|orgn'
-const allGithubOrgs: string[] = []; 
+const allGithubOrgs : string[] = []; 
 //store the current organization name selected
-const currentSelOrg: string = '';
+const currentSelOrg = ref<string>('');
 //add the string array 'allGithubTeams' to store all the team names for all the
 //organizations the current user belongs to, and the formation should be
 // 'org1:team1|team2|team3|...|teamn;org2:team1|team2|team3|...|teamn;...;orgn:team1|team2|team3|...|teamn'
-const allGithubTeams: string[] = [];
-const currentSelTeam: string = ''; //store the current team name selected
-const currentSelTeams: string[] = []; //store the current team names selected
-let initOrgsTeams: boolean = false; //store the flag to indicate if the orgs and teams are initialized
+const allGithubTeams : string[] = [];
+const currentSelTeam  = ref<string>(''); //store the current team name selected
+const currentSelTeams : string[] = []; //store the current team names selected
+const initOrgsTeams = false; //store the flag to indicate if the orgs and teams are initialized
 
 let scopeName: string;
-let orgNames = githubOrgs.split('|'); //add orgs contents
-// if (scopeType === 'organization') {
-// 	scopeName = githubOrgName;
-// 	apiUrl = `${baseApi || 'https://api.github.com'}/orgs/${githubOrgName}`;
-// }
-// else if (scopeType === 'enterprise') {
-// 	scopeName = githubEntName;
-// 	apiUrl = `${baseApi || 'https://api.github.com'}/enterprises/${githubEntName}`;
-// }
-// else {
-// 	throw new Error(`Invalid VUE_APP_SCOPE value: ${env.VUE_APP_SCOPE}. Valid values: ${VALID_SCOPE.join(', ')}`)
-// }
+const orgNames = githubOrgs.split('|'); //add orgs contents
 
 const config: Config = {
 	changeCurrentOrg: changeCurrentOrg,
 	changeCurrentTeam: changeCurrentTeam,
 	initORgs_Teams: initORgs_Teams,
     orgsTeamsInited: initOrgsTeams,
-	//changeOrg: changeOrg,
-	//changeOrgs: changeOrgs,
+	isMSFT: isMicrosoft,
 	mockedData: env.VUE_APP_MOCKED_DATA === "true",
-	// scope: {
-	// 	type: scopeType,
-	// 	name: scopeName,
-	// },
+
 	github: {
 		org: githubOrgName,
 		orgs: orgNames, //add orgs contents
-		ent: env.VUE_APP_GITHUB_ENT,
+		entName: entName,
 		team: env.VUE_APP_GITHUB_TEAM,
 		token: env.VUE_APP_GITHUB_TOKEN,
-		apiUrl,
+		apiUrl: apiUrl.value,
 		baseApi,
 		//add the variables to get the enterprise, organization and team names
-		allGithubOrgs,
-		currentSelOrg,
-		allGithubTeams,
-		currentSelTeam,
-		currentSelTeams,
+		allGithubOrgs: allGithubOrgs,
+		currentSelOrg: currentSelOrg.value,
+		allGithubTeams: allGithubTeams,
+		currentSelTeam: currentSelTeam.value,
+		currentSelTeams: currentSelTeams,
 
 		
 	}
@@ -92,35 +77,39 @@ if (!config.mockedData && !config.github.token && !config.github.baseApi) {
 	throw new Error("VUE_APP_GITHUB_TOKEN environment variable must be set or calls have to be proxied by the api layer.");
 }
 
-//define the function to setup the allGithubOrgs and currentSelOrgs value
-// function changeOrgs(allOrgs: GHOrgs) {
-// 	//iterate the allOrgs to get the organization names and store them in the allGithubOrgs
-// 	allOrgs.orgs.forEach((org) => {
-// 		allGithubOrgs
-// 	});
-
-// 	config.github.allGithubOrgs = orgNames;
-// }
-
-//deifne the function to change the current team name
+//define the function to change the current team name
 function changeCurrentTeam(teamName: string) {
 	config.github.currentSelTeam = teamName;
+	if(teamName !== 'ALL') 
+		config.github.apiUrl = `${config.github.baseApi}/orgs/${config.github.currentSelOrg}/teams/${teamName}`;
 }
 
 //define the function to change the current organization name
 function changeCurrentOrg(orgName: string) {
-	if (  orgName === 'ALL' ) {
+	if (  orgName.startsWith('Ent-') ) {
+		//this set the apiUrl to the enterprise api url
 		config.github.currentSelOrg = orgName;
+		const enterpriseName = orgName.split('-')[1];
 		config.github.currentSelTeams = config.github.allGithubTeams[0].split(':')[1].split('|');
-		config.github.apiUrl = `${config.github.baseApi}/orgs/${config.github.currentSelOrg}`;
+		config.github.currentSelTeam = config.github.currentSelTeams[0];
+		config.github.apiUrl = `${config.github.baseApi}/enterprise/${enterpriseName}`;
 		return;
 	}
+	//set the currentSelOrg with no enterprise name
 	config.github.currentSelOrg = orgName;
 	//get the team names string with from the string list variable allGithubTeams which 
 	//start with the string equal to orgName + ':'
-	const nowSelectedTeamsString = allGithubTeams.filter((teamNames) => teamNames.startsWith(orgName + ':'))[0];
+	//const nowSelectedTeamsString = config.github.allGithubTeams.filter((teamNames: string) => teamNames.(orgName + ':'));
+	let nowSelectedTeamsString = '';
+	for (let i = 0; i < config.github.allGithubTeams.length; i++) {
+		if (config.github.allGithubTeams[i].startsWith(orgName + ':')) {
+			nowSelectedTeamsString = config.github.allGithubTeams[i].split(':')[1];
+			break;
+		}
+	} 
 	//get the team names list from the string and store it in the currentSelTeams
-	config.github.currentSelTeams = nowSelectedTeamsString.split(':')[1].split('|');
+	config.github.currentSelTeams = nowSelectedTeamsString.split('|');
+	config.github.apiUrl = `${config.github.baseApi}/orgs/${orgName}`;
 	config.github.currentSelTeam = config.github.currentSelTeams[0];
 }
 
@@ -130,9 +119,6 @@ function initORgs_Teams(nowAllOrgs: string[], nowAllTeams: string[]) {
 	config.github.allGithubOrgs = nowAllOrgs;
 	//store the team names in the allGithubTeams
 	config.github.allGithubTeams = nowAllTeams;
-	//set the current organization name and team name
-	changeCurrentOrg(nowAllOrgs[0]);
-
 }
 
 export default config;
@@ -144,6 +130,7 @@ interface Config {
 	initORgs_Teams: (nowAllOrgs: string[], nowAllTeams: string[]) => void;
 	changeCurrentOrg: (orgName: string) => void;
 	changeCurrentTeam: (teamName: string) => void;
+	isMSFT: boolean;
 	mockedData: boolean;
 	orgsTeamsInited: boolean;
 	github: {
@@ -152,8 +139,7 @@ interface Config {
 		/** The GitHub enterprise name. */
 		orgs: string[]; //add orgs contents
 		/** The GitHub enterprise name. */
-
-		ent: string;
+		entName: string;
 		/** The GitHub team name. */
 		team: string;
 		/** 
@@ -169,13 +155,13 @@ interface Config {
 		 * When using the proxy, it used `env.VUE_APP_GITHUB_API` to set the base URL, so that requests are sent to the proxy before being forwarded to the GitHub API.
 		 * 
 		 */
-		apiUrl: string;
 		/**
 		 * The base URL for the GitHub API. When set to `/api/github` it sends data via proxy to the GitHub API to hide the token.
 		 * 
 		 * default: https://api.github.com
 		 */
 		baseApi: string;
+		apiUrl: string;
 		//add the variables to get the enterprise, organization and team names
         //formation for allGithubOrgs should be array - 
 		// if with enterprise name => Array of string begin with - (['Ent:enterpriseName'])
