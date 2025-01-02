@@ -4,7 +4,7 @@ import { GHOrg } from "./model/GHOrgs";
 import { GHTeam } from "./model/GHTeams";
 import { defineComponent, ref } from 'vue'
 
-const PROPS = ["MOCKED_DATA", "SCOPE", "GITHUB_ORG", "GITHUB_ORGs", "GITHUB_ENT", "GITHUB_TEAM", "GITHUB_TOKEN", "GITHUB_API", "MICROSOFT"];
+const PROPS = ["MOCKED_DATA","GITHUB_ENT", "GITHUB_TOKEN", "GITHUB_API", "GITHUB_HIDDEN_ORGS"];
 
 const env: any = {};
 PROPS.forEach(prop => {
@@ -17,19 +17,10 @@ PROPS.forEach(prop => {
 	}
 });
 
-const VALID_SCOPE = ['organization', 'enterprise'];
-
-// let scopeType;
-// if (VALID_SCOPE.includes(env.VUE_APP_SCOPE)) {
-// 	scopeType = env.VUE_APP_SCOPE as 'enterprise' | 'organization'
-// }
-
 const apiUrl = ref<string>('');
 const githubOrgName = env.VUE_APP_GITHUB_ORG;
-const githubOrgs = env.VUE_APP_GITHUB_ORGs; //add orgs contents
 const entName = env.VUE_APP_GITHUB_ENT;
-const baseApi = env.VUE_APP_GITHUB_API; 
-const isMicrosoft = env.VUE_APP_MICROSOFT === 'true';
+const baseApi = env.VUE_APP_GITHUB_API; //store the base api url
 //add the tring array 'allGithubOrgs' to store all the organization names for all the 
 //enterprises the current user belongs to with the formation should be
 // 'org1|org2|org3|...|orgn'
@@ -43,23 +34,17 @@ const allGithubTeams : string[] = [];
 const currentSelTeam  = ref<string>(''); //store the current team name selected
 const currentSelTeams : string[] = []; //store the current team names selected
 const initOrgsTeams = false; //store the flag to indicate if the orgs and teams are initialized
-
-let scopeName: string;
-const orgNames = githubOrgs.split('|'); //add orgs contents
+const hiddenOrgs = env.VUE_APP_GITHUB_HIDDEN_ORGS;//store the hidden organization names
 
 const config: Config = {
 	changeCurrentOrg: changeCurrentOrg,
 	changeCurrentTeam: changeCurrentTeam,
 	initORgs_Teams: initORgs_Teams,
     orgsTeamsInited: initOrgsTeams,
-	isMSFT: isMicrosoft,
 	mockedData: env.VUE_APP_MOCKED_DATA === "true",
 
 	github: {
-		org: githubOrgName,
-		orgs: orgNames, //add orgs contents
 		entName: entName,
-		team: env.VUE_APP_GITHUB_TEAM,
 		token: env.VUE_APP_GITHUB_TOKEN,
 		apiUrl: apiUrl.value,
 		baseApi,
@@ -69,8 +54,7 @@ const config: Config = {
 		allGithubTeams: allGithubTeams,
 		currentSelTeam: currentSelTeam.value,
 		currentSelTeams: currentSelTeams,
-
-		
+		hiddenOrgs: hiddenOrgs
 	}
 }
 if (!config.mockedData && !config.github.token && !config.github.baseApi) {
@@ -80,19 +64,15 @@ if (!config.mockedData && !config.github.token && !config.github.baseApi) {
 //define the function to change the current team name
 function changeCurrentTeam(teamName: string) {
 	config.github.currentSelTeam = teamName;
-	if(teamName !== 'ALL') 
-		config.github.apiUrl = `${config.github.baseApi}/orgs/${config.github.currentSelOrg}/teams/${teamName}`;
 }
 
 //define the function to change the current organization name
 function changeCurrentOrg(orgName: string) {
 	if (  orgName.startsWith('Ent-') ) {
-		//this set the apiUrl to the enterprise api url
 		config.github.currentSelOrg = orgName;
 		const enterpriseName = orgName.split('-')[1];
 		config.github.currentSelTeams = config.github.allGithubTeams[0].split(':')[1].split('|');
 		config.github.currentSelTeam = config.github.currentSelTeams[0];
-		config.github.apiUrl = `${config.github.baseApi}/enterprise/${enterpriseName}`;
 		return;
 	}
 	//set the currentSelOrg with no enterprise name
@@ -109,7 +89,6 @@ function changeCurrentOrg(orgName: string) {
 	} 
 	//get the team names list from the string and store it in the currentSelTeams
 	config.github.currentSelTeams = nowSelectedTeamsString.split('|');
-	config.github.apiUrl = `${config.github.baseApi}/orgs/${orgName}`;
 	config.github.currentSelTeam = config.github.currentSelTeams[0];
 }
 
@@ -130,18 +109,11 @@ interface Config {
 	initORgs_Teams: (nowAllOrgs: string[], nowAllTeams: string[]) => void;
 	changeCurrentOrg: (orgName: string) => void;
 	changeCurrentTeam: (teamName: string) => void;
-	isMSFT: boolean;
 	mockedData: boolean;
 	orgsTeamsInited: boolean;
 	github: {
-		/** The GitHub organization name. */
-		org: string; 
-		/** The GitHub enterprise name. */
-		orgs: string[]; //add orgs contents
 		/** The GitHub enterprise name. */
 		entName: string;
-		/** The GitHub team name. */
-		team: string;
 		/** 
 		 * The GitHub token to authenticate requests. 
 		 * 
@@ -176,5 +148,6 @@ interface Config {
 		//store the current teams names for corresponding organization selected
 		currentSelTeams: string[];
 		currentSelTeam: string; 
+		hiddenOrgs: string;
 	}
 }

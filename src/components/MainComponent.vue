@@ -7,13 +7,27 @@
 
       <v-toolbar-title class="toolbar-title">Copilot Metrics Viewer 
       </v-toolbar-title>
+      <v-select
+        v-model="selectedOrg"
+        :items="orgsList"
+        label="Select Org"
+        outlined
+        dense
+        class="select-org"
+        @update:modelValue="handleOrgChange"
+      ></v-select>
+      <v-select
+        v-model="selectedTeam"
+        :items="teamsList"
+        label="Select Team"
+        outlined
+        dense
+        class="select-team"
+        @update:modelValue="handleTeamChange"
+      ></v-select>
+
       <h2 class="error-message"> {{ mockedDataMessage }} </h2>
       <v-spacer></v-spacer>
-      <div v-for="(items, index) in allItems" :key="index">
-        <v-autocomplete
-          label="Enterprise & Orgnization" :items=items
-        ></v-autocomplete>
-      </div>
       <!-- Conditionally render the logout button -->
       <v-btn v-if="showLogoutButton" href="/logout" class="logout-button">Logout</v-btn>
 
@@ -53,32 +67,31 @@
   </v-card>
 </template>
 
-<script lang='ts'>
-import { defineComponent, ref } from 'vue'
-import { getMetricsApi } from '../api/GitHubApi';
-import { getTeamMetricsApi } from '../api/GitHubApi';
-import { getSeatsApi } from '../api/ExtractSeats';
-import { Metrics } from '../model/Metrics';
-import { Seat } from "../model/Seat";
-import { GHOrgs } from '@/model/GHOrgs';
+<script lang="ts">
+import { defineComponent, handleError, onMounted, ref, watch } from 'vue';
+import config from '../config';
 import { GHOrg } from '@/model/GHOrgs';
+import { GHOrgs } from '@/model/GHOrgs';
 import { GHTeam } from '@/model/GHTeams';
 import { GHTeams } from '@/model/GHTeams';
-
+//import { getMetricsApi } from '@/api/GitHubApi';
+import { getOrgs } from '../api/GitHubApi';
+import { getTeamsForOrg } from '../api/GitHubApi';
+import { Metrics } from '../model/Metrics';
+import { getMetricsApi } from '../api/GitHubApi';
+import { getTeamMetricsApi } from '../api/GitHubApi';
+import { Seat } from "../model/Seat";
+import { getSeatsApi } from '../api/ExtractSeats';
 //Components
 import MetricsViewer from './MetricsViewer.vue'
 import BreakdownComponent from './BreakdownComponent.vue' 
 import CopilotChatViewer from './CopilotChatViewer.vue' 
 import SeatsAnalysisViewer from './SeatsAnalysisViewer.vue'
 import ApiResponse from './ApiResponse.vue'
-import config from '../config';
-//import { changeOrg } from '../config';
-import { getOrgs } from '../api/GitHubApi';
-import { getTeamsForOrg } from '../api/GitHubApi';
-import { text } from 'express';
 
 export default defineComponent({
-  name: 'MainComponent',
+  name: 'TestComponent',
+
   components: {
     MetricsViewer,
     BreakdownComponent,
@@ -86,44 +99,12 @@ export default defineComponent({
     SeatsAnalysisViewer,
     ApiResponse
   },
-  computed: {
 
-    gitHubOrgName() {
-      return config.github.org;
-    },
-    gitHubOrgNames() {
-      return config.github.orgs;
-    },
-
-    //add the orgs names to the view
-    displayViewOrgsName(): string[] {
-      return config.github.orgs;
-    }
-    ,
-    teamName() {
-      var teamName;
-      if (config.github.team && config.github.team.trim() !== '') {
-        teamName = "| Team : " + config.github.team;
-      } else {
-        teamName = '';
-      }
-      return teamName;
-    },
-    mockedDataMessage() {
-      return config.mockedData ? 'Using mock data - see README if unintended' : '';
-    },
-    showLogoutButton() {
-      return config.github.baseApi === '/api/github';
-    },
-     loadOrgsName(){
-      return config.github.allGithubOrgs;
-     }
-  },
+  //public conponents for config instance
   data () {
     return {
       tabItems: ['languages', 'editors', 'copilot chat', 'seat analysis', 'api response'],
       tab: null,
-      currentOrg: config.github.allGithubOrgs,
       itemName: 'Enterprises',
       allItems: [] as any[][] ,
     }
@@ -131,118 +112,137 @@ export default defineComponent({
   created() {
     this.tabItems.unshift(this.itemName);
   },
+  computed: {
+    mockedDataMessage() {
+      return config.mockedData ? 'Using mock data - see README if unintended' : '';
+    },
+    showLogoutButton() {
+      return config.github.baseApi === '/api/github';
+    },
+  },
   methods: {
-    handleOrgChange(newValue: string) {
-      config.changeCurrentOrg(newValue);
-      config.changeCurrentTeam(config.github.currentSelTeams[0]);
-      this.$forceUpdate();
-      this.dataUpdate();
+    handleOrgChange(org: string) {
+      config.changeCurrentOrg(org);
+      this.teamsList = config.github.currentSelTeams;
+      this.fetchMetricsData();
     },
-    dataUpdate() {      
-      // if config.currentselectteam is 'ALL', then get the metrics for all the teams in the org
-      // swtich to orgs get the metrics
-    },
-    setOrgs(stringOrgs: string[]) {
-      this.allItems = [stringOrgs];
+
+    handleTeamChange(team: string) {
+      config.changeCurrentTeam(team);
+      this.fetchMetricsData(); 
     }
   },
   setup() {
-    const metricsReady = ref(false);
-    const metrics = ref<Metrics[]>([]);
-    const seatsReady = ref(false); 
-    const seats = ref<Seat[]>([]); 
-    const apiError = ref<string | undefined>(undefined);
-    const signInRequired = ref(false);
-    const userOrgs = ref<GHOrgs>();
-
-    //define the initlization: get the orgs contents then init config.github.allGithubOrgs 
-    // and get the teams contents for each orgs then init config.github.allGithubTeams
-    const initOrgsTeams = async () => {
-      //get the orgs with the function : getorgs from githubapi.ts and store to a GHOrgs object
-      let orgs = await getOrgs();
-      let orgs_strings: string[] = [];
-      let teams_strings: string[] = [];
-      //if config.github.ent is empty or null, 
-      // then insert with Ent:enterprieName  into config.github.allGithubOrgs in the beginning
-      if (config.github.ent && config.github.ent !== '') {
-        orgs_strings.push('Ent-'+config.github.ent);
-        teams_strings.push(config.github.ent+':ALL');
-      }
-      //get the org names from the GHOrgs object and contact it to a string seperate by '|';
-      // and then get the teams information for each orgs with the function : getTeamsForOrg from githubapi.ts
-      // and store the teams information to a GHTeams object
-      for (let i = 0; i < orgs.orgs.length; i++) {
-        orgs_strings.push(orgs.orgs[i].login);
-        let nowteams_string = orgs.orgs[i].login + ':ALL|'; 
-        let teams = await getTeamsForOrg(orgs.orgs[i].login);
-        teams.teams.forEach((team: GHTeam):void => {
-          nowteams_string += team.name + '|';
-        });
-        nowteams_string = nowteams_string.slice(0, -1);//remove the last '|'    
-        teams_strings.push(nowteams_string);
-      }
-
-    //init the orgs and teams information to the config object
-    config.initORgs_Teams(orgs_strings, teams_strings);
-    if(config.isMSFT) {
-      config.github.allGithubOrgs = config.github.allGithubOrgs.filter(org => org !== 'MicrosoftCopilot');
-      config.github.allGithubTeams = config.github.allGithubTeams.filter(team => team.startsWith('MicrosoftCopilot') === false);
-    }
-    config.changeCurrentOrg(config.github.allGithubOrgs[0]);
-    config.orgsTeamsInited = true;
-     
-  };
-    
-    const processError = (error: any) => {
-      console.log(error);
-      if (error.response && error.response.status) {
-        switch (error.response.status) {
-          case 401:
-            apiError.value = '401 Unauthorized access - check if your token in the .env file is correct.';
-            if (config.github.baseApi === '/api/github') {
-              signInRequired.value = true;
-            }
-            break;
-          case 404:
-            apiError.value = `404 Not Found - is the right correct correct?`;
-            apiError.value = error.message;
+        
+        const apiError = ref<string | undefined>(undefined);
+        const signInRequired = ref(false);
+        const metricsReady = ref(false);
+        const metrics = ref<Metrics[]>([]);
+        const seatsReady = ref(false); 
+        const seats = ref<Seat[]>([]); 
+        const processError = (error: any) => {
+          console.log(error);
+          if (error.response && error.response.status) {
+            switch (error.response.status) {
+              case 401:
+                apiError.value = '401 Unauthorized access - check if your token in the .env file is correct.';
+                if (config.github.baseApi === '/api/github') {
+                  signInRequired.value = true;
+                }
+                break;
+              case 404:
+                apiError.value = `404 Not Found - is the right correct correct?`;
+                apiError.value = error.message;
         }
         apiError.value += ' <br> If .env file is modified, restart the app for the changes to take effect.';
       }
     };
-    //console.log(ref(config.github.allGithubOrgs));
-   
 
-    const refreshData = async () => {
+
+        //function to init the orgs and teams information
+        const initOrgsTeams = async () => {
+        let orgs = await getOrgs();
+        let orgs_strings: string[] = [];
+        let teams_strings: string[] = [];
+        //if config.github.entName is setted, 
+        // then insert with Ent:enterprieName  into config.github.allGithubOrgs in the beginning
+        if (config.github.entName && config.github.entName !== '') {
+          orgs_strings.push('Ent-'+config.github.entName);
+          teams_strings.push('Ent-'+config.github.entName+':ALL');
+        }
+        //trick to remove hidden orgs informaion
+        if (config.github.hiddenOrgs && config.github.hiddenOrgs !== '') {
+           //remove the org in orgs if the org.login is in the hiddenOrgs
+            orgs.orgs = orgs.orgs.filter((org: GHOrg):boolean => {
+              return !config.github.hiddenOrgs.includes(org.login);
+            });
+        }
+        //get the org names from the GHOrgs object and contact it to a string seperate by '|';
+        // and then get the teams information for each orgs with the function : getTeamsForOrg from githubapi.ts
+        // and store the teams information to a GHTeams object
+        for (let i = 0; i < orgs.orgs.length; i++) {
+          orgs_strings.push(orgs.orgs[i].login);
+          let nowteams_string = orgs.orgs[i].login + ':ALL|'; 
+          let teams = await getTeamsForOrg(orgs.orgs[i].login);
+          teams.teams.forEach((team: GHTeam):void => {
+            nowteams_string += team.name + '|';
+         });
+          nowteams_string = nowteams_string.slice(0, -1);//remove the last '|'    
+          teams_strings.push(nowteams_string);
+        }
+
+        //init the orgs and teams information to the config object
+        config.initORgs_Teams(orgs_strings, teams_strings);
+        config.changeCurrentOrg(config.github.allGithubOrgs[0]);
+        config.changeCurrentTeam(config.github.currentSelTeams[0]);
+        config.orgsTeamsInited = true;
+      }
+    if (!config.orgsTeamsInited) {
+      initOrgsTeams();
+    }
+    const selectedOrg = ref<string | null>(null);
+    const selectedTeam = ref<string | null>(null);
+    const teamsList = ref<string[]>([]);
+    const orgsList = ref<string[]>([]);
+    const initializeOrgTeam = async () => {
+      try {
+        // Wait for initialization
+        while (!config.orgsTeamsInited) {
+          await new Promise(resolve => setTimeout(resolve, 40))
+        }
+        
+        // Update orgsList after initialization
+        orgsList.value = config.github.allGithubOrgs;
+        teamsList.value = config.github.currentSelTeams;
+        config.changeCurrentOrg(config.github.allGithubOrgs[0]);
+        fetchMetricsData();
+      } catch (e) {
+        console.error('Error initializing component:', e)
+      }
+    }
+
+    const fetchMetricsData = async () => {
       try {
         // Reset error states
         apiError.value = undefined;
         signInRequired.value = false;
 
         // Fetch metrics based on team configuration
-        let entAndORg = false;
+        let entAndOrg = false;
         if (config.github.currentSelOrg.startsWith('Ent-')) {
           // this is the configuration for enterprise
           const entName = config.github.currentSelOrg.split('-')[1];
-          //https://api.github.com/enterprises/JumpStarGroup/copilot/usage
-          config.github.apiUrl = config.github.baseApi + '/enterprises/' + entName;
-          entAndORg = true;
+          entAndOrg = true;
         } else if(config.github.currentSelTeam !== 'ALL') {
           // this is the configuration for a specific team in selected org
-          //https://api.github.com/orgs/CopilotNext/team/Dewu/copilot/usage
-          config.github.apiUrl = config.github.baseApi + '/orgs/' + config.github.currentSelOrg + '/team/' + config.github.currentSelTeam;
         } else {
           // this is the configuration for all teams in selected org
-          //https://api.github.com/orgs/CopilotNext/copilot/usage
-          config.github.apiUrl = config.github.baseApi + '/orgs/' + config.github.currentSelOrg;
-          entAndORg = true;
+          entAndOrg = true;
         }
-        if (!entAndORg) {
+        if (!entAndOrg) {
           metrics.value = await getTeamMetricsApi();
-          console.log('metrics:', metrics.value);
         } else {
           metrics.value = await getMetricsApi();
-          console.log('metrics:', metrics.value);
         }
         metricsReady.value = true;
         // Fetch seats data
@@ -251,30 +251,30 @@ export default defineComponent({
       } catch (error) {
         processError(error);
       }
-      //udpate all the viewer components - MetricsViewer,BreakdownComponent,CopilotChatViewer,SeatsAnalysisViewer
-      if(MetricsViewer) {
-        //refresh the MetricsViewer
-        
-      }
+    };
+
+    onMounted(() => {
+      initializeOrgTeam();
+    });
+
     
 
-    };
-    //refreshData should be waiting for executing of initOrgsTeams
-    Promise.resolve(initOrgsTeams()).then(() => {
-      refreshData();
-    }); 
-    
-    return { 
-      metricsReady, 
-      metrics, 
-      seatsReady, 
-      seats, 
-      apiError, 
-      signInRequired,
-      userOrgs, // Add to returned object
-    };
+    return {
+      selectedOrg,
+      orgsList,
+      selectedTeam,
+      teamsList,
+      apiError,
+      signInRequired, 
+      metricsReady,
+      metrics,
+      seats,
+      seatsReady,
+      config,
+      fetchMetricsData,
+    }
   }
-})
+});
 </script>
 
 <style scoped>
