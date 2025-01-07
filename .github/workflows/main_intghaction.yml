@@ -61,7 +61,9 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_34FA38F385C34625A92D63BD8D0235E1 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_C7F923F26ED0421293028406C8208610 }}
      
-      - name: print current contents
+      - name: print current directory path
+        run: pwd
+      - name:  print current directory contents
         run: ls -la
       
       - name: 'Deploy to Azure Web App'
