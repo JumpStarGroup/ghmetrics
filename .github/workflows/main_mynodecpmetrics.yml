@@ -42,7 +42,9 @@ jobs:
     environment:
       name: 'Production'
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    
+    permissions:
+      id-token: write #This is required for requesting the JWT
+
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
@@ -52,6 +54,13 @@ jobs:
       - name: Unzip artifact for deployment
         run: unzip release.zip
       
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_6A2BBCBE7566452EAEE322D5C8EE0A52 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F919D740A58B458C966E9FA7035DDFF8 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B885BB9BFC934D198C9DF8C0C10F04D6 }}
+
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
@@ -59,4 +68,4 @@ jobs:
           app-name: 'mynodecpmetrics'
           slot-name: 'Production'
           package: .
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_7E56ADF20AE644BFBBB0C25E7502B567 }}
+          
