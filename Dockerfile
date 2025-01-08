@@ -11,7 +11,7 @@ FROM nginx:1.27 AS production-stage
 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 COPY --from=build-stage /app/dist/assets/app-config.js /usr/share/nginx/html-template/app-config.template.js
-COPY ./docker-entrypoint.d/*.sh /docker-entrypoint.d/
+COPY ./docker-entrypoint.d/*.sh /docker-entrdypoint.d/
 RUN chmod +x /docker-entrypoint.d/*.sh
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
